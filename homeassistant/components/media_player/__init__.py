@@ -58,6 +58,8 @@ SERVICE_PLAY_MEDIA = 'play_media'
 SERVICE_SELECT_SOURCE = 'select_source'
 SERVICE_CLEAR_PLAYLIST = 'clear_playlist'
 
+SERVICE_VOLUME_TRANSITION = 'volume_transition'
+
 ATTR_MEDIA_VOLUME_LEVEL = 'volume_level'
 ATTR_MEDIA_VOLUME_MUTED = 'is_volume_muted'
 ATTR_MEDIA_SEEK_POSITION = 'seek_position'
@@ -82,6 +84,8 @@ ATTR_INPUT_SOURCE = 'source'
 ATTR_INPUT_SOURCE_LIST = 'source_list'
 ATTR_MEDIA_ENQUEUE = 'enqueue'
 
+ATTR_MEDIA_TRANSITIONTIME = 'transitiontime'
+
 MEDIA_TYPE_MUSIC = 'music'
 MEDIA_TYPE_TVSHOW = 'tvshow'
 MEDIA_TYPE_VIDEO = 'movie'
@@ -104,6 +108,8 @@ SUPPORT_SELECT_SOURCE = 2048
 SUPPORT_STOP = 4096
 SUPPORT_CLEAR_PLAYLIST = 8192
 SUPPORT_PLAY = 16384
+
+SUPPORT_VOLUME_TRANSITION = 32768
 
 # Service call validation schemas
 MEDIA_PLAYER_SCHEMA = vol.Schema({
@@ -131,6 +137,10 @@ MEDIA_PLAYER_PLAY_MEDIA_SCHEMA = MEDIA_PLAYER_SCHEMA.extend({
     vol.Required(ATTR_MEDIA_CONTENT_TYPE): cv.string,
     vol.Required(ATTR_MEDIA_CONTENT_ID): cv.string,
     vol.Optional(ATTR_MEDIA_ENQUEUE): cv.boolean,
+})
+
+MEDIA_PLAYER_VOLUME_TRANSITION_SCHEMA = MEDIA_PLAYER_SET_VOLUME_SCHEMA.extend({
+    vol.Required(ATTR_MEDIA_TRANSITIONTIME): vol.Coerce(int)
 })
 
 SERVICE_TO_METHOD = {
@@ -161,6 +171,10 @@ SERVICE_TO_METHOD = {
     SERVICE_PLAY_MEDIA: {
         'method': 'async_play_media',
         'schema': MEDIA_PLAYER_PLAY_MEDIA_SCHEMA},
+    SERVICE_VOLUME_TRANSITION: {
+        'method': 'async_volume_transition',
+        'schema': MEDIA_PLAYER_VOLUME_TRANSITION_SCHEMA}
+    }
 }
 
 ATTR_TO_PROPERTY = [
@@ -358,6 +372,10 @@ def async_setup(hass, config):
             params['media_id'] = service.data.get(ATTR_MEDIA_CONTENT_ID)
             params[ATTR_MEDIA_ENQUEUE] = \
                 service.data.get(ATTR_MEDIA_ENQUEUE)
+        elif service.service == SERVICE_VOLUME_TRANSITION:
+            params['volume'] = service.data.get(ATTR_MEDIA_VOLUME_LEVEL)
+            params['transitiontime'] = service.data.get(ATTR_MEDIA_TRANSITIONTIME)
+
         target_players = component.async_extract_from_service(service)
 
         update_tasks = []
@@ -593,6 +611,19 @@ class MediaPlayerDevice(Entity):
         return self.hass.loop.run_in_executor(
             None, self.set_volume_level, volume)
 
+    def volume_transition(self, volume, transitiontime):
+        """Transition to volume, range 0..1, transitiontime in seconds."""
+        raise NotImplementedError()
+
+    def async_volume_transition(self, volume, transitiontime):
+        """Transition to volume, range 0..1, transitiontime in seconds.
+
+        This method must be run in the event loop and returns a coroutine.
+        """
+        return self.hass.loop.run_in_executor(
+            None, self.volumen_transition, volume, transitiontime)
+
+
     def media_play(self):
         """Send play commmand."""
         raise NotImplementedError()
@@ -726,6 +757,11 @@ class MediaPlayerDevice(Entity):
     def support_volume_set(self):
         """Boolean if setting volume is supported."""
         return bool(self.supported_features & SUPPORT_VOLUME_SET)
+
+    @property
+    def support_volume_transition(self):
+        """Boolean if setting volume is supported."""
+        return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
 
     @property
     def support_volume_mute(self):
