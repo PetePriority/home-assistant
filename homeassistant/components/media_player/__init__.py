@@ -174,7 +174,6 @@ SERVICE_TO_METHOD = {
     SERVICE_VOLUME_TRANSITION: {
         'method': 'async_volume_transition',
         'schema': MEDIA_PLAYER_VOLUME_TRANSITION_SCHEMA}
-    }
 }
 
 ATTR_TO_PROPERTY = [
@@ -761,11 +760,6 @@ class MediaPlayerDevice(Entity):
     # def support_volume_transition(self):
     #     """Boolean if setting volume is supported."""
     #     return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
-
-    @property
-    def support_volume_transition(self):
-        """Boolean if setting volume is supported."""
-        return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
 
     @property
     def support_volume_mute(self):
