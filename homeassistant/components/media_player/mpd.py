@@ -20,6 +20,7 @@ from homeassistant.const import (
     CONF_HOST, CONF_NAME)
 import homeassistant.helpers.config_validation as cv
 from homeassistant.util import Throttle
+from threading import Timer
 
 REQUIREMENTS = ['python-mpd2==0.5.5']
 
@@ -28,11 +29,14 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = 'MPD'
 DEFAULT_PORT = 6600
 
+TRANSITION_INTERVAL = 1 # interval between volume adjustments in seconds
+
 PLAYLIST_UPDATE_INTERVAL = timedelta(seconds=120)
 
 SUPPORT_MPD = SUPPORT_PAUSE | SUPPORT_VOLUME_SET | SUPPORT_TURN_OFF | \
     SUPPORT_TURN_ON | SUPPORT_PREVIOUS_TRACK | SUPPORT_NEXT_TRACK | \
     SUPPORT_PLAY_MEDIA | SUPPORT_PLAY | SUPPORT_SELECT_SOURCE
+#| SUPPORT_VOLUME_TRANSITION
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_HOST): cv.string,
@@ -95,6 +99,9 @@ class MpdDevice(MediaPlayerDevice):
         self.client = mpd.MPDClient()
         self.client.timeout = 10
         self.client.idletimeout = None
+
+        self.timer = None # for volume transitions
+
         self.update()
 
     def update(self):
@@ -218,6 +225,36 @@ class MpdDevice(MediaPlayerDevice):
     def set_volume_level(self, volume):
         """Set volume of media player."""
         self.client.setvol(int(volume * 100))
+
+    def _transition_helper(self, current_volume, step, target_volume):
+        """Helper function for volume transitions"""
+
+        new_volume = current_volume + step
+        if step >= 0:
+            new_volume = min(target_volume, new_volume)
+        else:
+            new_volume = max(target_volume, new_volume)
+
+        self.set_volume_level(new_volume)
+        _LOGGER.info("Transition volume set to {0}".format(new_volume))
+
+        if new_volume == target_volume:
+            self.timer = None
+        else:
+            self.timer = Timer(TRANSITION_INTERVAL, self._transition_helper,
+                               (new_volume, step, target_volume))
+            self.timer.start()
+
+    def volume_transition(self, volume, transition):
+        """Transition to volume, range 0..1, transition in seconds."""
+        if self.timer is not None:
+            self.timer.cancel()
+
+        current_volume = self.volume_level
+        step = (volume - current_volume) / transition * TRANSITION_INTERVAL
+        self.timer = Timer(TRANSITION_INTERVAL, self._transition_helper,
+                           (current_volume, step, volume))
+        self.timer.start()
 
     def volume_up(self):
         """Service to send the MPD the command for volume up."""
