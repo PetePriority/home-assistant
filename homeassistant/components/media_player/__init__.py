@@ -84,7 +84,7 @@ ATTR_INPUT_SOURCE = 'source'
 ATTR_INPUT_SOURCE_LIST = 'source_list'
 ATTR_MEDIA_ENQUEUE = 'enqueue'
 
-ATTR_MEDIA_TRANSITIONTIME = 'transitiontime'
+ATTR_MEDIA_TRANSITION = 'transition'
 
 MEDIA_TYPE_MUSIC = 'music'
 MEDIA_TYPE_TVSHOW = 'tvshow'
@@ -109,7 +109,7 @@ SUPPORT_STOP = 4096
 SUPPORT_CLEAR_PLAYLIST = 8192
 SUPPORT_PLAY = 16384
 
-SUPPORT_VOLUME_TRANSITION = 32768
+# SUPPORT_VOLUME_TRANSITION = 32768
 
 # Service call validation schemas
 MEDIA_PLAYER_SCHEMA = vol.Schema({
@@ -140,7 +140,7 @@ MEDIA_PLAYER_PLAY_MEDIA_SCHEMA = MEDIA_PLAYER_SCHEMA.extend({
 })
 
 MEDIA_PLAYER_VOLUME_TRANSITION_SCHEMA = MEDIA_PLAYER_SET_VOLUME_SCHEMA.extend({
-    vol.Required(ATTR_MEDIA_TRANSITIONTIME): vol.Coerce(int)
+    vol.Required(ATTR_MEDIA_TRANSITION): vol.Coerce(int)
 })
 
 SERVICE_TO_METHOD = {
@@ -174,7 +174,6 @@ SERVICE_TO_METHOD = {
     SERVICE_VOLUME_TRANSITION: {
         'method': 'async_volume_transition',
         'schema': MEDIA_PLAYER_VOLUME_TRANSITION_SCHEMA}
-    }
 }
 
 ATTR_TO_PROPERTY = [
@@ -374,7 +373,7 @@ def async_setup(hass, config):
                 service.data.get(ATTR_MEDIA_ENQUEUE)
         elif service.service == SERVICE_VOLUME_TRANSITION:
             params['volume'] = service.data.get(ATTR_MEDIA_VOLUME_LEVEL)
-            params['transitiontime'] = service.data.get(ATTR_MEDIA_TRANSITIONTIME)
+            params['transition'] = service.data.get(ATTR_MEDIA_TRANSITION)
 
         target_players = component.async_extract_from_service(service)
 
@@ -611,18 +610,17 @@ class MediaPlayerDevice(Entity):
         return self.hass.loop.run_in_executor(
             None, self.set_volume_level, volume)
 
-    def volume_transition(self, volume, transitiontime):
-        """Transition to volume, range 0..1, transitiontime in seconds."""
+    def volume_transition(self, volume, transition):
+        """Transition to volume, range 0..1, transition in seconds."""
         raise NotImplementedError()
 
-    def async_volume_transition(self, volume, transitiontime):
-        """Transition to volume, range 0..1, transitiontime in seconds.
+    def async_volume_transition(self, volume, transition):
+        """Transition to volume, range 0..1, transition in seconds.
 
         This method must be run in the event loop and returns a coroutine.
         """
         return self.hass.loop.run_in_executor(
-            None, self.volumen_transition, volume, transitiontime)
-
+            None, self.volume_transition, volume, transition)
 
     def media_play(self):
         """Send play commmand."""
@@ -758,10 +756,10 @@ class MediaPlayerDevice(Entity):
         """Boolean if setting volume is supported."""
         return bool(self.supported_features & SUPPORT_VOLUME_SET)
 
-    @property
-    def support_volume_transition(self):
-        """Boolean if setting volume is supported."""
-        return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
+    # @property
+    # def support_volume_transition(self):
+    #     """Boolean if setting volume is supported."""
+    #     return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
 
     @property
     def support_volume_mute(self):
