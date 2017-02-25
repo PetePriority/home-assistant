@@ -762,11 +762,6 @@ class MediaPlayerDevice(Entity):
     #     return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
 
     @property
-    def support_volume_transition(self):
-        """Boolean if setting volume is supported."""
-        return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
-
-    @property
     def support_volume_mute(self):
         """Boolean if muting volume is supported."""
         return bool(self.supported_features & SUPPORT_VOLUME_MUTE)
