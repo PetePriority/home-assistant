@@ -66,7 +66,7 @@ class RPiGPIOSwitch(ToggleEntity):
     @property
     def should_poll(self):
         """No polling needed."""
-        return False
+        return True
 
     @property
     def is_on(self):
@@ -84,3 +84,7 @@ class RPiGPIOSwitch(ToggleEntity):
         rpi_gpio.write_output(self._port, 1 if self._invert_logic else 0)
         self._state = False
         self.schedule_update_ha_state()
+
+    def update(self):
+        """Update the GPIO state."""
+        self._state = rpi_gpio.read_input(self._port)
