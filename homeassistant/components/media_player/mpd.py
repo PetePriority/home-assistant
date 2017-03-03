@@ -31,7 +31,12 @@ CONF_LOCATION = 'location'
 DEFAULT_LOCATION = 'MPD'
 DEFAULT_PORT = 6600
 
-TRANSITION_INTERVAL = 2 # interval between volume adjustments in seconds
+# Transition interval for volume transitions will be computed such that after
+# each interval the volume will be increased by 1 percentile.
+# I.e., interval = 0.01 * duration/dVolume
+# MIN_TRANSITION_INTERVAL specifies a lower bound (in seconds) in order to
+# prevent excessive calling of set_volume_level.
+MIN_TRANSITION_INTERVAL = 2.0
 
 PLAYLIST_UPDATE_INTERVAL = timedelta(seconds=120)
 
@@ -229,7 +234,7 @@ class MpdDevice(MediaPlayerDevice):
         """Set volume of media player."""
         self.client.setvol(int(volume * 100))
 
-    def _transition_helper(self, current_volume, step, target_volume):
+    def _transition_helper(self, current_volume, transition_interval, step, target_volume):
         """Helper function for volume transitions"""
 
         new_volume = current_volume + step
@@ -246,8 +251,8 @@ class MpdDevice(MediaPlayerDevice):
         if new_volume == target_volume:
             self.timer = None
         else:
-            self.timer = Timer(TRANSITION_INTERVAL, self._transition_helper,
-                               (new_volume, step, target_volume))
+            self.timer = Timer(transition_interval, self._transition_helper,
+                               (new_volume, transition_interval, step, target_volume))
             self.timer.start()
 
     def volume_transition(self, volume, transition):
@@ -255,10 +260,18 @@ class MpdDevice(MediaPlayerDevice):
         if self.timer is not None:
             self.timer.cancel()
 
+        _LOGGER.info("Transition started")
+
         current_volume = self.volume_level
-        step = (volume - current_volume) / transition * TRANSITION_INTERVAL
-        self.timer = Timer(TRANSITION_INTERVAL, self._transition_helper,
-                           (current_volume, step, volume))
+        transition_interval = max(0.01 * transition/(volume - current_volume),
+                                  MIN_TRANSITION_INTERVAL)
+        _LOGGER.info("Transition interval: %f", transition_interval)
+
+        step = (volume - current_volume) / transition * transition_interval
+        _LOGGER.info("Step: %f", step)
+
+        self.timer = Timer(transition_interval, self._transition_helper,
+                           (current_volume, transition_interval, step, volume))
         self.timer.start()
 
     def volume_up(self):
