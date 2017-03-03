@@ -31,7 +31,7 @@ CONF_LOCATION = 'location'
 DEFAULT_LOCATION = 'MPD'
 DEFAULT_PORT = 6600
 
-TRANSITION_INTERVAL = 1 # interval between volume adjustments in seconds
+TRANSITION_INTERVAL = 2 # interval between volume adjustments in seconds
 
 PLAYLIST_UPDATE_INTERVAL = timedelta(seconds=120)
 
@@ -238,7 +238,9 @@ class MpdDevice(MediaPlayerDevice):
         else:
             new_volume = max(target_volume, new_volume)
 
+        self.update()
         self.set_volume_level(new_volume)
+
         _LOGGER.info("Transition volume set to {0}".format(new_volume))
 
         if new_volume == target_volume:
