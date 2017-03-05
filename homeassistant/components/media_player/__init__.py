@@ -15,6 +15,7 @@ from random import SystemRandom
 from aiohttp import web
 import async_timeout
 import voluptuous as vol
+from threading import Timer
 
 from homeassistant.config import load_yaml_config_file
 from homeassistant.helpers.entity import Entity
@@ -110,6 +111,18 @@ SUPPORT_CLEAR_PLAYLIST = 8192
 SUPPORT_PLAY = 16384
 
 # SUPPORT_VOLUME_TRANSITION = 32768
+
+# Transition interval for volume transitions will be computed such that after
+# each interval the volume will be increased by 1 percentile.
+# I.e., interval = 0.01 * duration/dVolume
+# MIN_TRANSITION_INTERVAL specifies a lower bound (in seconds) in order to
+# prevent excessive calling of set_volume_level.
+MIN_TRANSITION_INTERVAL = 2.0
+CONF_MIN_TRANSITION_INTERVAL = "min_transition_interval"
+
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
+    vol.Optional(CONF_MIN_TRANSITION_INTERVAL, default=2.0): vol.All(float, vol.Range(min=0.1))
+})
 
 # Service call validation schemas
 MEDIA_PLAYER_SCHEMA = vol.Schema({
@@ -261,6 +274,14 @@ def set_volume_level(hass, volume, entity_id=None):
 
     hass.services.call(DOMAIN, SERVICE_VOLUME_SET, data)
 
+def volume_transition(hass, volume, transition, entity_id=None):
+    """Send the media player the command to transition the volume."""
+    data = {ATTR_MEDIA_VOLUME_LEVEL: volume, ATTR_MEDIA_TRANSITION: transition}
+
+    if entity_id:
+        data[ATTR_ENTITY_ID] = entity_id
+
+    hass.services.call(DOMAIN, SERVICE_VOLUME_TRANSITION, data)
 
 def media_play_pause(hass, entity_id=None):
     """Send the media player the command for play/pause."""
@@ -408,6 +429,12 @@ class MediaPlayerDevice(Entity):
     """ABC for media player devices."""
 
     _access_token = None
+
+    def __init__(self, min_transition_interval=MIN_TRANSITION_INTERVAL, *args, **kwargs):
+        _LOGGER.warning("### %s", args)
+        _LOGGER.warning("### %s", kwargs)
+        self.timer = None # for volume transitions
+        self.min_transition_interval = min_transition_interval
 
     # pylint: disable=no-self-use
     # Implement these for your media player
@@ -610,9 +637,45 @@ class MediaPlayerDevice(Entity):
         return self.hass.loop.run_in_executor(
             None, self.set_volume_level, volume)
 
+    def _transition_helper(self, current_volume, transition_interval, step, target_volume):
+        """Helper function for volume transitions"""
+
+        new_volume = current_volume + step
+        if step >= 0:
+            new_volume = min(target_volume, new_volume)
+        else:
+            new_volume = max(target_volume, new_volume)
+
+        self.update()
+        self.set_volume_level(new_volume)
+
+        _LOGGER.info("Transition volume set to {0}".format(new_volume))
+
+        if new_volume == target_volume:
+            self.timer = None
+        else:
+            self.timer = Timer(transition_interval, self._transition_helper,
+                               (new_volume, transition_interval, step, target_volume))
+            self.timer.start()
+
     def volume_transition(self, volume, transition):
         """Transition to volume, range 0..1, transition in seconds."""
-        raise NotImplementedError()
+        if self.timer is not None:
+            self.timer.cancel()
+
+        _LOGGER.info("Transition started")
+
+        current_volume = self.volume_level
+        transition_interval = max(0.01 * transition/abs(volume - current_volume),
+                                  self.min_transition_interval)
+        _LOGGER.info("Transition interval: %f", transition_interval)
+
+        step = (volume - current_volume) / transition * transition_interval
+        _LOGGER.info("Step: %f", step)
+
+        self.timer = Timer(transition_interval, self._transition_helper,
+                           (current_volume, transition_interval, step, volume))
+        self.timer.start()
 
     def async_volume_transition(self, volume, transition):
         """Transition to volume, range 0..1, transition in seconds.
