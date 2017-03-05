@@ -7,6 +7,9 @@ https://home-assistant.io/components/sensor.dht/
 import logging
 from datetime import timedelta
 
+import os
+import time
+
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
@@ -17,15 +20,10 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.util import Throttle
 from homeassistant.util.temperature import celsius_to_fahrenheit
 
-# Update this requirement to upstream as soon as it supports Python 3.
-REQUIREMENTS = ['http://github.com/adafruit/Adafruit_Python_DHT/archive/'
-                '310c59b0293354d07d94375f1365f7b9b9110c7d.zip'
-                '#Adafruit_DHT==1.3.0']
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_PIN = 'pin'
-CONF_SENSOR = 'sensor'
+CONF_SENSOR_PATH = 'sensor_path'
 
 DEFAULT_NAME = 'DHT Sensor'
 
@@ -40,8 +38,7 @@ SENSOR_TYPES = {
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_SENSOR): cv.string,
-    vol.Required(CONF_PIN): cv.string,
+    vol.Required(CONF_SENSOR_PATH): cv.string,
     vol.Optional(CONF_MONITORED_CONDITIONS, default=[]):
         vol.All(cv.ensure_list, [vol.In(SENSOR_TYPES)]),
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
@@ -51,22 +48,12 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Setup the DHT sensor."""
     # pylint: disable=import-error
-    import Adafruit_DHT
 
     SENSOR_TYPES[SENSOR_TEMPERATURE][1] = hass.config.units.temperature_unit
-    available_sensors = {
-        "DHT11": Adafruit_DHT.DHT11,
-        "DHT22": Adafruit_DHT.DHT22,
-        "AM2302": Adafruit_DHT.AM2302
-    }
-    sensor = available_sensors.get(config.get(CONF_SENSOR))
-    pin = config.get(CONF_PIN)
+    sensor_path = config.get(CONF_SENSOR_PATH)
 
-    if not sensor:
-        _LOGGER.error("DHT sensor type is not supported")
-        return False
 
-    data = DHTClient(Adafruit_DHT, sensor, pin)
+    data = DHTClient(sensor_path)
     dev = []
     name = config.get(CONF_NAME)
 
@@ -129,18 +116,45 @@ class DHTSensor(Entity):
 class DHTClient(object):
     """Get the latest data from the DHT sensor."""
 
-    def __init__(self, adafruit_dht, sensor, pin):
+    def __init__(self, sensor_path):
         """Initialize the sensor."""
-        self.adafruit_dht = adafruit_dht
-        self.sensor = sensor
-        self.pin = pin
+        self.sensor_path_temp = os.path.join(sensor_path, 'in_temp_input')
+        self.sensor_path_humidity = os.path.join(sensor_path, 'in_humidityrelative_input')
         self.data = dict()
+
+
+    def _dht_read(self):
+        temp = None
+        humidity = None
+        with open(self.sensor_path_temp, 'r') as fd:
+            temp = float(fd.readline().strip('\n'))/1000
+        with open(self.sensor_path_humidity, 'r') as fd:
+            humidity = float(fd.readline().strip('\n'))/1000
+            return humidity, temp
+
+    def _dht_read_retry(self, retries=5, wait_on_error=1):
+        temp = None
+        humidity = None
+        run = 0
+        while (temp is None or humidity is None) and run < retries:
+            try:
+                humidity, temp = self._dht_read()
+            except OSError as err:
+                run = run + 1
+                _LOGGER.debug('Failed to read: %s', err)
+                _LOGGER.debug('Retrying in %ds (%d/%d)...',
+                               wait_on_error, run, retries)
+                time.sleep(wait_on_error)
+
+        return humidity, temp
+
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self):
         """Get the latest data the DHT sensor."""
-        humidity, temperature = self.adafruit_dht.read_retry(self.sensor,
-                                                             self.pin)
+        humidity, temperature = self._dht_read_retry()
+        if temperature is None or humidity is None:
+            _LOGGER.warning('Failed to read temperature/humidity.')
         if temperature:
             self.data[SENSOR_TEMPERATURE] = temperature
         if humidity:
