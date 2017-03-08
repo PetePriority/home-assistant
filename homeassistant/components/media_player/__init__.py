@@ -110,7 +110,6 @@ SUPPORT_STOP = 4096
 SUPPORT_CLEAR_PLAYLIST = 8192
 SUPPORT_PLAY = 16384
 
-# SUPPORT_VOLUME_TRANSITION = 32768
 
 # Transition interval for volume transitions will be computed such that after
 # each interval the volume will be increased by 1 percentile.
@@ -118,6 +117,9 @@ SUPPORT_PLAY = 16384
 # MIN_TRANSITION_INTERVAL specifies a lower bound (in seconds) in order to
 # prevent excessive calling of set_volume_level.
 MIN_TRANSITION_INTERVAL = 2.0
+# The corresponding platform has to pass the min_transition_interval parameter
+# over to its parent MediaPlayerDevice class using super, else MIN_TRANSITION_INTERVAL
+# will be used. See mpd.py for an example.
 CONF_MIN_TRANSITION_INTERVAL = "min_transition_interval"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -431,8 +433,6 @@ class MediaPlayerDevice(Entity):
     _access_token = None
 
     def __init__(self, min_transition_interval=MIN_TRANSITION_INTERVAL, *args, **kwargs):
-        _LOGGER.warning("### %s", args)
-        _LOGGER.warning("### %s", kwargs)
         self.timer = None # for volume transitions
         self.min_transition_interval = min_transition_interval
 
@@ -649,7 +649,7 @@ class MediaPlayerDevice(Entity):
         self.update()
         self.set_volume_level(new_volume)
 
-        _LOGGER.info("Transition volume set to {0}".format(new_volume))
+        _LOGGER.debug("Transition volume set to %.1f", new_volume*100)
 
         if new_volume == target_volume:
             self.timer = None
@@ -663,15 +663,16 @@ class MediaPlayerDevice(Entity):
         if self.timer is not None:
             self.timer.cancel()
 
-        _LOGGER.info("Transition started")
+        _LOGGER.debug("Transition started")
 
         current_volume = self.volume_level
         transition_interval = max(0.01 * transition/abs(volume - current_volume),
                                   self.min_transition_interval)
-        _LOGGER.info("Transition interval: %f", transition_interval)
 
         step = (volume - current_volume) / transition * transition_interval
-        _LOGGER.info("Step: %f", step)
+        _LOGGER.debug("Changing volume from %d%% to %d%% in steps of %.1f%% every %.1fs.",
+                      current_volume*100, volume*100, step*100, transition_interval
+        )
 
         self.timer = Timer(transition_interval, self._transition_helper,
                            (current_volume, transition_interval, step, volume))

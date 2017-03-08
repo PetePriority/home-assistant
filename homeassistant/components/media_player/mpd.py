@@ -14,7 +14,7 @@ from homeassistant.components.media_player import (
     MEDIA_TYPE_MUSIC, SUPPORT_NEXT_TRACK, SUPPORT_PAUSE, PLATFORM_SCHEMA,
     SUPPORT_PREVIOUS_TRACK, SUPPORT_TURN_OFF, SUPPORT_TURN_ON,
     SUPPORT_VOLUME_SET, SUPPORT_PLAY_MEDIA, SUPPORT_PLAY, MEDIA_TYPE_PLAYLIST,
-    SUPPORT_SELECT_SOURCE, MediaPlayerDevice)
+    SUPPORT_SELECT_SOURCE, MediaPlayerDevice, CONF_MIN_TRANSITION_INTERVAL)
 from homeassistant.const import (
     STATE_OFF, STATE_PAUSED, STATE_PLAYING, CONF_PORT, CONF_PASSWORD,
     CONF_HOST)
@@ -52,6 +52,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     port = config.get(CONF_PORT)
     location = config.get(CONF_LOCATION)
     password = config.get(CONF_PASSWORD)
+    min_transition_interval = config.get(CONF_MIN_TRANSITION_INTERVAL)
 
     import mpd
 
@@ -76,7 +77,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         else:
             raise
 
-    add_devices([MpdDevice(daemon, port, location, password, config=config)])
+    add_devices([MpdDevice(daemon, port, location, password, min_transition_interval=min_transition_interval)])
 
 
 class MpdDevice(MediaPlayerDevice):
