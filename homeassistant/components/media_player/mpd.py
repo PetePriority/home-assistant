@@ -82,7 +82,7 @@ class MpdDevice(MediaPlayerDevice):
     """Representation of a MPD server."""
 
     # pylint: disable=no-member
-    def __init__(self, server, port, password, name):
+    def __init__(self, server, port, password, name, *args, **kwargs):
         """Initialize the MPD device."""
         super().__init__(*args, **kwargs)
 
