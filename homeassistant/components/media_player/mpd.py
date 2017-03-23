@@ -14,7 +14,7 @@ from homeassistant.components.media_player import (
     MEDIA_TYPE_MUSIC, SUPPORT_NEXT_TRACK, SUPPORT_PAUSE, PLATFORM_SCHEMA,
     SUPPORT_PREVIOUS_TRACK, SUPPORT_TURN_OFF, SUPPORT_TURN_ON,
     SUPPORT_VOLUME_SET, SUPPORT_PLAY_MEDIA, SUPPORT_PLAY, MEDIA_TYPE_PLAYLIST,
-    SUPPORT_SELECT_SOURCE, MediaPlayerDevice, CONF_MIN_TRANSITION_INTERVAL)
+    SUPPORT_SELECT_SOURCE, MediaPlayerDevice)
 from homeassistant.const import (
     STATE_OFF, STATE_PAUSED, STATE_PLAYING, CONF_PORT, CONF_PASSWORD,
     CONF_HOST, CONF_NAME)
@@ -33,7 +33,6 @@ PLAYLIST_UPDATE_INTERVAL = timedelta(seconds=120)
 SUPPORT_MPD = SUPPORT_PAUSE | SUPPORT_VOLUME_SET | SUPPORT_TURN_OFF | \
     SUPPORT_TURN_ON | SUPPORT_PREVIOUS_TRACK | SUPPORT_NEXT_TRACK | \
     SUPPORT_PLAY_MEDIA | SUPPORT_PLAY | SUPPORT_SELECT_SOURCE
-#| SUPPORT_VOLUME_TRANSITION
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_HOST): cv.string,
@@ -50,8 +49,6 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     port = config.get(CONF_PORT)
     name = config.get(CONF_NAME)
     password = config.get(CONF_PASSWORD)
-    min_transition_interval = config.get(CONF_MIN_TRANSITION_INTERVAL)
-
     import mpd
 
     # pylint: disable=no-member
@@ -75,17 +72,15 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         else:
             raise
 
-    add_devices([MpdDevice(daemon, port, password, name, min_transition_interval=min_transition_interval)])
+    add_devices([MpdDevice(daemon, port, password, name)])
 
 
 class MpdDevice(MediaPlayerDevice):
     """Representation of a MPD server."""
 
     # pylint: disable=no-member
-    def __init__(self, server, port, password, name, *args, **kwargs):
+    def __init__(self, server, port, password, name):
         """Initialize the MPD device."""
-        super().__init__(*args, **kwargs)
-
         import mpd
 
         self.server = server
@@ -100,7 +95,6 @@ class MpdDevice(MediaPlayerDevice):
         self.client = mpd.MPDClient()
         self.client.timeout = 10
         self.client.idletimeout = None
-
         self.update()
 
     def update(self):
@@ -133,10 +127,6 @@ class MpdDevice(MediaPlayerDevice):
     @property
     def state(self):
         """Return the media state."""
-        if self.status is None:
-            _LOGGER.error("### status is None")
-            update()
-
         if self.status['state'] == 'play':
             return STATE_PLAYING
         elif self.status['state'] == 'pause':

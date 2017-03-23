@@ -15,12 +15,11 @@ from random import SystemRandom
 from aiohttp import web
 import async_timeout
 import voluptuous as vol
-from threading import Timer
 
 from homeassistant.config import load_yaml_config_file
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_component import EntityComponent
-from homeassistant.helpers.config_validation import PLATFORM_SCHEMA  # noqa
+from homeassistant.helpers.config_validation import PLATFORM_SCHEMA
 from homeassistant.helpers.deprecation import deprecated_substitute
 from homeassistant.components.http import HomeAssistantView, KEY_AUTHENTICATED
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -116,15 +115,7 @@ SUPPORT_PLAY = 16384
 # I.e., interval = 0.01 * duration/dVolume
 # MIN_TRANSITION_INTERVAL specifies a lower bound (in seconds) in order to
 # prevent excessive calling of set_volume_level.
-MIN_TRANSITION_INTERVAL = 2.0
-# The corresponding platform has to pass the min_transition_interval parameter
-# over to its parent MediaPlayerDevice class using super, else MIN_TRANSITION_INTERVAL
-# will be used. See mpd.py for an example.
-CONF_MIN_TRANSITION_INTERVAL = "min_transition_interval"
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_MIN_TRANSITION_INTERVAL, default=2.0): vol.All(float, vol.Range(min=0.1))
-})
+MIN_TRANSITION_INTERVAL = 1.0
 
 # Service call validation schemas
 MEDIA_PLAYER_SCHEMA = vol.Schema({
@@ -432,10 +423,6 @@ class MediaPlayerDevice(Entity):
 
     _access_token = None
 
-    def __init__(self, min_transition_interval=MIN_TRANSITION_INTERVAL, *args, **kwargs):
-        self.timer = None # for volume transitions
-        self.min_transition_interval = min_transition_interval
-
     # pylint: disable=no-self-use
     # Implement these for your media player
     @property
@@ -637,54 +624,46 @@ class MediaPlayerDevice(Entity):
         return self.hass.loop.run_in_executor(
             None, self.set_volume_level, volume)
 
-    def _transition_helper(self, current_volume, transition_interval, step, target_volume):
+    @asyncio.coroutine
+    def _async_transition_helper(self, current_volume, transition_interval, step, target_volume):
         """Helper function for volume transitions"""
 
-        new_volume = current_volume + step
-        if step >= 0:
-            new_volume = min(target_volume, new_volume)
-        else:
-            new_volume = max(target_volume, new_volume)
+        while True:
+            new_volume = current_volume + step
+            if step >= 0:
+                new_volume = min(target_volume, new_volume)
+            else:
+                new_volume = max(target_volume, new_volume)
 
-        self.update()
-        self.set_volume_level(new_volume)
+            yield from self.async_set_volume_level(new_volume)
+            current_volume = new_volume
 
-        _LOGGER.debug("Transition volume set to %.1f", new_volume*100)
+            _LOGGER.debug("Transition volume set to %.1f", new_volume*100)
 
-        if new_volume == target_volume:
-            self.timer = None
-        else:
-            self.timer = Timer(transition_interval, self._transition_helper,
-                               (new_volume, transition_interval, step, target_volume))
-            self.timer.start()
+            if new_volume == target_volume:
+                return
 
-    def volume_transition(self, volume, transition):
-        """Transition to volume, range 0..1, transition in seconds."""
-        if self.timer is not None:
-            self.timer.cancel()
-
-        _LOGGER.debug("Transition started")
-
-        current_volume = self.volume_level
-        transition_interval = max(0.01 * transition/abs(volume - current_volume),
-                                  self.min_transition_interval)
-
-        step = (volume - current_volume) / transition * transition_interval
-        _LOGGER.debug("Changing volume from %d%% to %d%% in steps of %.1f%% every %.1fs.",
-                      current_volume*100, volume*100, step*100, transition_interval
-        )
-
-        self.timer = Timer(transition_interval, self._transition_helper,
-                           (current_volume, transition_interval, step, volume))
-        self.timer.start()
+            yield from asyncio.sleep(transition_interval)
 
     def async_volume_transition(self, volume, transition):
         """Transition to volume, range 0..1, transition in seconds.
 
         This method must be run in the event loop and returns a coroutine.
         """
-        return self.hass.loop.run_in_executor(
-            None, self.volume_transition, volume, transition)
+
+        _LOGGER.debug("Transition started")
+
+        current_volume = self.volume_level
+        transition_interval = max(0.01 * transition/abs(volume - current_volume),
+                                  MIN_TRANSITION_INTERVAL)
+
+        step = (volume - current_volume) / transition * transition_interval
+        _LOGGER.debug("Changing volume from %d%% to %d%% in steps of %.1f%% every %.1fs.",
+                      current_volume*100, volume*100, step*100, transition_interval
+        )
+
+        return self.hass.async_add_job(
+            self._async_transition_helper, current_volume, transition_interval, step, volume)
 
     def media_play(self):
         """Send play commmand."""
@@ -819,11 +798,6 @@ class MediaPlayerDevice(Entity):
     def support_volume_set(self):
         """Boolean if setting volume is supported."""
         return bool(self.supported_features & SUPPORT_VOLUME_SET)
-
-    # @property
-    # def support_volume_transition(self):
-    #     """Boolean if setting volume is supported."""
-    #     return bool(self.supported_media_commands & SUPPORT_VOLUME_TRANSITION)
 
     @property
     def support_volume_mute(self):
