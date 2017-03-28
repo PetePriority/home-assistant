@@ -425,6 +425,9 @@ class MediaPlayerDevice(Entity):
 
     _access_token = None
 
+    def __init__(self, *args, **kwargs):
+        self.transition_task = None
+
     # pylint: disable=no-self-use
     # Implement these for your media player
     @property
@@ -614,17 +617,19 @@ class MediaPlayerDevice(Entity):
         return self.hass.loop.run_in_executor(
             None, self.mute_volume, mute)
 
-    def set_volume_level(self, volume):
-        """Set volume level, range 0..1."""
+    def set_volume_level(self, volume, is_transition=False):
+        """Set volume level, range 0..1. Cancels transitions if
+        is_transition is True."""
         raise NotImplementedError()
 
-    def async_set_volume_level(self, volume):
-        """Set volume level, range 0..1.
+    def async_set_volume_level(self, volume, is_transition=False):
+        """Set volume level, range 0..1. Cancels transitions if
+        is_transition is True.
 
         This method must be run in the event loop and returns a coroutine.
         """
         return self.hass.loop.run_in_executor(
-            None, self.set_volume_level, volume)
+            None, self.set_volume_level, volume, is_transition)
 
     @asyncio.coroutine
     def _async_transition_helper(self, current_volume,
@@ -640,7 +645,7 @@ class MediaPlayerDevice(Entity):
             else:
                 new_volume = max(target_volume, new_volume)
 
-            yield from self.async_set_volume_level(new_volume)
+            yield from self.async_set_volume_level(new_volume, is_transition=True)
             current_volume = new_volume
 
             _LOGGER.debug("Transition volume set to %.1f", new_volume*100)
@@ -650,6 +655,12 @@ class MediaPlayerDevice(Entity):
 
             yield from asyncio.sleep(transition_interval)
 
+    def cancel_volume_transition(self):
+        """Cancels any running volume transition."""
+        if self.transition_task is not None and \
+           not self.transition_task.cancelled():
+            self.transition_task.cancel()
+
     def async_volume_transition(self, volume, transition):
         """Transition to volume, range 0..1, transition in seconds.
 
@@ -657,7 +668,14 @@ class MediaPlayerDevice(Entity):
         """
         _LOGGER.debug("Transition started")
 
+        self.cancel_volume_transition()
+
         current_volume = self.volume_level
+
+        if current_volume == volume:
+            # return empty generator
+            return iter(())
+
         transition_interval = max(0.01 *
                                   transition/abs(volume - current_volume),
                                   MIN_TRANSITION_INTERVAL)
@@ -668,9 +686,11 @@ class MediaPlayerDevice(Entity):
                       current_volume*100, volume*100, step*100,
                       transition_interval)
 
-        return self.hass.async_add_job(
-            self._async_transition_helper, current_volume, transition_interval,
-            step, volume)
+        task = self.hass.async_add_job(
+            self._async_transition_helper, current_volume,
+            transition_interval, step, volume)
+        self.transition_task = task
+        return task
 
     def media_play(self):
         """Send play commmand."""

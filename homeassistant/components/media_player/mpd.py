@@ -81,6 +81,7 @@ class MpdDevice(MediaPlayerDevice):
     # pylint: disable=no-member
     def __init__(self, server, port, password, name):
         """Initialize the MPD device."""
+        super().__init__()
         import mpd
 
         self.server = server
@@ -215,8 +216,10 @@ class MpdDevice(MediaPlayerDevice):
         for playlist_data in self.client.listplaylists():
             self.playlists.append(playlist_data['playlist'])
 
-    def set_volume_level(self, volume):
+    def set_volume_level(self, volume, is_transition=False):
         """Set volume of media player."""
+        if not is_transition:
+            self.cancel_volume_transition()
         self.client.setvol(int(volume * 100))
 
     def volume_up(self):
