@@ -45,6 +45,8 @@ CONF_PURGE_DAYS = 'purge_days'
 
 CONNECT_RETRY_WAIT = 3
 
+QUERY_RETRY_WAIT = 60
+
 FILTER_SCHEMA = vol.Schema({
     vol.Optional(CONF_EXCLUDE, default={}): vol.Schema({
         vol.Optional(CONF_ENTITIES, default=[]): cv.entity_ids,
@@ -154,6 +156,8 @@ class Recorder(threading.Thread):
         """Start processing events to save."""
         from .models import States, Events
         from homeassistant.components import persistent_notification
+
+        from sqlalchemy import exc
 
         tries = 1
         connected = False
@@ -266,14 +270,21 @@ class Recorder(threading.Thread):
                     self.queue.task_done()
                     continue
 
-            with session_scope(session=self.get_session()) as session:
-                dbevent = Events.from_event(event)
-                session.add(dbevent)
+            try:
+                with session_scope(session=self.get_session()) as session:
+                    dbevent = Events.from_event(event)
+                    session.add(dbevent)
 
-                if event.event_type == EVENT_STATE_CHANGED:
-                    dbstate = States.from_event(event)
-                    dbstate.event_id = dbevent.event_id
-                    session.add(dbstate)
+                    if event.event_type == EVENT_STATE_CHANGED:
+                        dbstate = States.from_event(event)
+                        dbstate.event_id = dbevent.event_id
+                        session.add(dbstate)
+            except exc.SQLAlchemyError as err:
+                _LOGGER.error("Error while storing event in database: %s", err)
+                _LOGGER.error("Sleeping for %d seconds before retrying", QUERY_RETRY_WAIT)
+                self.queue.put(event)
+                time.sleep(QUERY_RETRY_WAIT)
+
 
             self.queue.task_done()
 
